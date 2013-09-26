@@ -54,6 +54,7 @@ static struct BiomeColor default_biomes[] = {
     {20, 255, 25, 15}, /* Extreme Hills Edge */
     {21, 155, 155, 55}, /* Jungle */
     {22, 175, 255, 55}, /* Jungle Mountains */
+    {35, 227, 107, 0}, /* Savanna  */
     /* end of list marker */
     {255, 0, 0, 0}
 };

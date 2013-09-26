@@ -408,13 +408,13 @@ class Textures(object):
     def load_grass_color(self):
         """Helper function to load the grass color texture."""
         if not hasattr(self, "grasscolor"):
-            self.grasscolor = list(self.load_image("grasscolor.png").getdata())
+            self.grasscolor = list(self.load_image("assets/minecraft/textures/colormap/grass.png").getdata())
         return self.grasscolor
 
     def load_foliage_color(self):
         """Helper function to load the foliage color texture."""
         if not hasattr(self, "foliagecolor"):
-            self.foliagecolor = list(self.load_image("foliagecolor.png").getdata())
+            self.foliagecolor = list(self.load_image("assets/minecraft/textures/colormap/foliage.png").getdata())
         return self.foliagecolor
 
     def load_water_color(self):
@@ -961,7 +961,14 @@ def lava(self, blockid, data):
     return self.build_block(lavatex, lavatex)
 
 # sand
-block(blockid=12, top_image="assets/minecraft/textures/blocks/sand.png")
+@material(blockid=12, data=range(2), solid=True)
+def dirt_blocks(self, blockid, data):
+    if data == 0: # normal
+        img =  self.build_block(self.load_image_texture("assets/minecraft/textures/blocks/sand.png"), self.load_image_texture("assets/minecraft/textures/blocks/sand.png"))
+    if data == 1: # red 
+        img = self.build_block(self.load_image_texture("assets/minecraft/textures/blocks/red_sand.png"), self.load_image_texture("assets/minecraft/textures/blocks/red_sand.png"))
+    return img
+
 # gravel
 block(blockid=13, top_image="assets/minecraft/textures/blocks/gravel.png")
 # gold ore
