@@ -97,7 +97,7 @@ base_draw(void *data, RenderState *state, PyObject *src, PyObject *mask, PyObjec
         /* water */
         state->block == 8 || state->block == 9 ||
         /* leaves */
-        state->block == 18 ||
+        state->block == 18 || state->block == 161 ||
         /* tallgrass, but not dead shrubs */
         (state->block == 31 && state->block_data != 0) ||
         /* pumpkin/melon stem, not fully grown. Fully grown stems
@@ -163,6 +163,9 @@ base_draw(void *data, RenderState *state, PyObject *src, PyObject *mask, PyObjec
             /* lily pads */
             color_table = self->grasscolor;
             break;
+        case 161:
+            /* leaves2 acacia and dark oak */
+            color_table = self->foliagecolor;
         case 175:
             /* doublePlant grass & ferns */
             color_table = self->grasscolor;
