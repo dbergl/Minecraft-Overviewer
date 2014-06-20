@@ -150,11 +150,12 @@ is typically correct.
     haven't, so each one is checked before it is rendered.
     
     This is slightly slower than :option:`--no-tile-checks` due to the
-    additonaly disk-io involved in reading tile mtimes from the filesystem
+    additional disk-io involved in reading tile mtimes from the filesystem
     
     Since this option also checks for erroneous tiles, **It is also useful after
     you delete sections of your map, e.g. with worldedit, to delete tiles that
-    should no longer exist.**
+    should no longer exist.** Overviewer greatly overestimates tiles to be 
+    rendered and time needed to complete.
 
     The caveats with this option are the same as for :option:`--no-tile-checks`
     with the additional caveat that tile timestamps in the filesystem must be
@@ -260,13 +261,13 @@ If you want or need to provide your own textures, you have several options:
 
   ::
 
-    VERSION=1.6.2
+    VERSION=1.7.2
     wget https://s3.amazonaws.com/Minecraft.Download/versions/${VERSION}/${VERSION}.jar -P ~/.minecraft/versions/${VERSION}/
     
   If that's too confusing for you, then just take this single line and paste it into
-  a terminal to get 1.6.2 textures::
+  a terminal to get 1.7.2 textures::
   
-    wget https://s3.amazonaws.com/Minecraft.Download/versions/1.6.2/1.6.2.jar -P ~/.minecraft/versions/1.6.2/
+    wget https://s3.amazonaws.com/Minecraft.Download/versions/1.7.2/1.7.2.jar -P ~/.minecraft/versions/1.7.2/
 
 * You can also just run the launcher to install the client.
   

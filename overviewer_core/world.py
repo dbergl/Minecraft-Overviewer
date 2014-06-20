@@ -21,6 +21,7 @@ import hashlib
 import time
 import random
 import re
+import locale
 
 import numpy
 
@@ -272,7 +273,7 @@ class RegionSet(object):
         
         for x, y, regionfile in self._iterate_regionfiles():
             # regionfile is a pathname
-            self.regionfiles[(x,y)] = regionfile
+            self.regionfiles[(x,y)] = (regionfile, os.path.getmtime(regionfile))
 
         self.empty_chunk = [None,None]
         logging.debug("Done scanning regions")
@@ -414,31 +415,39 @@ class RegionSet(object):
 
             # Turn the skylight array into a 16x16x16 matrix. The array comes
             # packed 2 elements per byte, so we need to expand it.
-            skylight = numpy.frombuffer(section['SkyLight'], dtype=numpy.uint8)
-            skylight = skylight.reshape((16,16,8))
-            skylight_expanded = numpy.empty((16,16,16), dtype=numpy.uint8)
-            skylight_expanded[:,:,::2] = skylight & 0x0F
-            skylight_expanded[:,:,1::2] = (skylight & 0xF0) >> 4
-            del skylight
-            section['SkyLight'] = skylight_expanded
+            try:
+                skylight = numpy.frombuffer(section['SkyLight'], dtype=numpy.uint8)
+                skylight = skylight.reshape((16,16,8))
+                skylight_expanded = numpy.empty((16,16,16), dtype=numpy.uint8)
+                skylight_expanded[:,:,::2] = skylight & 0x0F
+                skylight_expanded[:,:,1::2] = (skylight & 0xF0) >> 4
+                del skylight
+                section['SkyLight'] = skylight_expanded
 
-            # Turn the BlockLight array into a 16x16x16 matrix, same as SkyLight
-            blocklight = numpy.frombuffer(section['BlockLight'], dtype=numpy.uint8)
-            blocklight = blocklight.reshape((16,16,8))
-            blocklight_expanded = numpy.empty((16,16,16), dtype=numpy.uint8)
-            blocklight_expanded[:,:,::2] = blocklight & 0x0F
-            blocklight_expanded[:,:,1::2] = (blocklight & 0xF0) >> 4
-            del blocklight
-            section['BlockLight'] = blocklight_expanded
+                # Turn the BlockLight array into a 16x16x16 matrix, same as SkyLight
+                blocklight = numpy.frombuffer(section['BlockLight'], dtype=numpy.uint8)
+                blocklight = blocklight.reshape((16,16,8))
+                blocklight_expanded = numpy.empty((16,16,16), dtype=numpy.uint8)
+                blocklight_expanded[:,:,::2] = blocklight & 0x0F
+                blocklight_expanded[:,:,1::2] = (blocklight & 0xF0) >> 4
+                del blocklight
+                section['BlockLight'] = blocklight_expanded
 
-            # Turn the Data array into a 16x16x16 matrix, same as SkyLight
-            data = numpy.frombuffer(section['Data'], dtype=numpy.uint8)
-            data = data.reshape((16,16,8))
-            data_expanded = numpy.empty((16,16,16), dtype=numpy.uint8)
-            data_expanded[:,:,::2] = data & 0x0F
-            data_expanded[:,:,1::2] = (data & 0xF0) >> 4
-            del data
-            section['Data'] = data_expanded
+                # Turn the Data array into a 16x16x16 matrix, same as SkyLight
+                data = numpy.frombuffer(section['Data'], dtype=numpy.uint8)
+                data = data.reshape((16,16,8))
+                data_expanded = numpy.empty((16,16,16), dtype=numpy.uint8)
+                data_expanded[:,:,::2] = data & 0x0F
+                data_expanded[:,:,1::2] = (data & 0xF0) >> 4
+                del data
+                section['Data'] = data_expanded
+            except ValueError:
+                # iv'e seen at least 1 case where numpy raises a value error during the reshapes.  i'm not
+                # sure what's going on here, but let's treat this as a corrupt chunk error
+                logging.warning("There was a problem reading chunk %d,%d.  It might be corrupt.  I am giving up and will not render this particular chunk.", x, z)
+
+                logging.debug("Full traceback:", exc_info=1)
+                raise nbt.CorruptChunkError()
         
         return chunk_data      
     
@@ -450,12 +459,33 @@ class RegionSet(object):
         
         """
 
-        for (regionx, regiony), regionfile in self.regionfiles.iteritems():
+        for (regionx, regiony), (regionfile, filemtime) in self.regionfiles.iteritems():
             try:
                 mcr = self._get_regionobj(regionfile)
             except nbt.CorruptRegionError:
                 logging.warning("Found a corrupt region file at %s,%s. Skipping it.", regionx, regiony)
                 continue
+            for chunkx, chunky in mcr.get_chunks():
+                yield chunkx+32*regionx, chunky+32*regiony, mcr.get_chunk_timestamp(chunkx, chunky)
+
+    def iterate_newer_chunks(self, mtime):
+        """Returns an iterator over all chunk metadata in this world. Iterates
+        over tuples of integers (x,z,mtime) for each chunk.  Other chunk data
+        is not returned here.
+        
+        """
+
+        for (regionx, regiony), (regionfile, filemtime) in self.regionfiles.iteritems():
+            """ SKIP LOADING A REGION WHICH HAS NOT BEEN MODIFIED! """
+            if (filemtime < mtime):
+                continue
+
+            try:
+                mcr = self._get_regionobj(regionfile)
+            except nbt.CorruptRegionError:
+                logging.warning("Found a corrupt region file at %s,%s. Skipping it.", regionx, regiony)
+                continue
+
             for chunkx, chunky in mcr.get_chunks():
                 yield chunkx+32*regionx, chunky+32*regiony, mcr.get_chunk_timestamp(chunkx, chunky)
 
@@ -484,7 +514,7 @@ class RegionSet(object):
         Coords can be either be global chunk coords, or local to a region
 
         """
-        regionfile = self.regionfiles.get((chunkX//32, chunkY//32),None)
+        (regionfile,filemtime) = self.regionfiles.get((chunkX//32, chunkY//32),(None, None))
         return regionfile
             
     def _iterate_regionfiles(self):
@@ -528,6 +558,8 @@ class RegionSetWrapper(object):
         return self._r.get_chunk(x,z)
     def iterate_chunks(self):
         return self._r.iterate_chunks()
+    def iterate_newer_chunks(self,filemtime):
+        return self._r.iterate_newer_chunks(filemtime)
     def get_chunk_mtime(self, x, z):
         return self._r.get_chunk_mtime(x,z)
     
@@ -614,6 +646,11 @@ class RotatedRegionSet(RegionSetWrapper):
             x,z = self.rotate(x,z)
             yield x,z,mtime
 
+    def iterate_newer_chunks(self, filemtime):
+        for x,z,mtime in super(RotatedRegionSet, self).iterate_newer_chunks(filemtime):
+            x,z = self.rotate(x,z)
+            yield x,z,mtime
+
 class CroppedRegionSet(RegionSetWrapper):
     def __init__(self, rsetobj, xmin, zmin, xmax, zmax):
         super(CroppedRegionSet, self).__init__(rsetobj)
@@ -637,6 +674,14 @@ class CroppedRegionSet(RegionSetWrapper):
                     self.xmin <= x <= self.xmax and
                     self.zmin <= z <= self.zmax
                 )
+
+    def iterate_newer_chunks(self, filemtime):
+        return ((x,z,mtime) for (x,z,mtime) in super(CroppedRegionSet,self).iterate_newer_chunks(filemtime)
+                if
+                    self.xmin <= x <= self.xmax and
+                    self.zmin <= z <= self.zmax
+                )
+
     def get_chunk_mtime(self,x,z):
         if (
                 self.xmin <= x <= self.xmax and
@@ -726,6 +771,7 @@ def get_worlds():
     "Returns {world # or name : level.dat information}"
     ret = {}
     save_dir = get_save_dir()
+    loc = locale.getpreferredencoding()
 
     # No dirs found - most likely not running from inside minecraft-dir
     if not save_dir is None:
@@ -733,13 +779,8 @@ def get_worlds():
             world_dat = os.path.join(save_dir, dir, "level.dat")
             if not os.path.exists(world_dat): continue
             info = nbt.load(world_dat)[1]
-            info['Data']['path'] = os.path.join(save_dir, dir)
-            if dir.startswith("World") and len(dir) == 6:
-                try:
-                    world_n = int(dir[-1])
-                    ret[world_n] = info['Data']
-                except ValueError:
-                    pass
+            info['Data']['path'] = os.path.join(save_dir, dir).decode(loc)
+
             if 'LevelName' in info['Data'].keys():
                 ret[info['Data']['LevelName']] = info['Data']
     
@@ -747,7 +788,7 @@ def get_worlds():
         world_dat = os.path.join(dir, "level.dat")
         if not os.path.exists(world_dat): continue
         info = nbt.load(world_dat)[1]
-        info['Data']['path'] = os.path.join(".", dir)
+        info['Data']['path'] = os.path.join(".", dir).decode(loc)
         if 'LevelName' in info['Data'].keys():
             ret[info['Data']['LevelName']] = info['Data']
 

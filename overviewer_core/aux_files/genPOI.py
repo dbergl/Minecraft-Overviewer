@@ -18,11 +18,20 @@ import os
 import logging
 import json
 import sys
+import re
+import urllib2
+import Queue
+import multiprocessing
+
+from multiprocessing import Process
+from multiprocessing import Pool
 from optparse import OptionParser
 
 from overviewer_core import logger
 from overviewer_core import nbt
 from overviewer_core import configParser, world
+
+UUID_LOOKUP_URL = 'https://sessionserver.mojang.com/session/minecraft/profile/'
 
 def replaceBads(s):
     "Replaces bad characters with good characters!"
@@ -32,7 +41,35 @@ def replaceBads(s):
         x = x.replace(bad,"_")
     return x
 
-def handleEntities(rset, outputdir, render, rname):
+# yes there's a double parenthesis here
+# see below for when this is called, and why we do this
+# a smarter way would be functools.partial, but that's broken on python 2.6
+# when used with multiprocessing
+def parseBucketChunks((bucket, rset)):
+    pid = multiprocessing.current_process().pid
+    pois = dict(TileEntities=[], Entities=[]);
+  
+    i = 0
+    cnt = 0
+    l = len(bucket)
+    for b in bucket:
+        try:
+            data = rset.get_chunk(b[0],b[1])
+            pois['TileEntities'] += data['TileEntities']
+            pois['Entities']     += data['Entities']
+        except nbt.CorruptChunkError:
+            logging.warning("Ignoring POIs in corrupt chunk %d,%d", b[0], b[1])
+
+        # Perhaps only on verbose ?
+        i = i + 1
+        if i == 250:
+            i = 0
+            cnt = 250 + cnt
+            logging.info("Found %d entities and %d tile entities in thread %d so far at %d chunks", len(pois['Entities']), len(pois['TileEntities']), pid, cnt);
+
+    return pois
+
+def handleEntities(rset, outputdir, render, rname, config):
 
     # if we're already handled the POIs for this region regionset, do nothing
     if hasattr(rset, "_pois"):
@@ -43,12 +80,63 @@ def handleEntities(rset, outputdir, render, rname):
     filters = render['markers']
     rset._pois = dict(TileEntities=[], Entities=[])
 
-    for (x,z,mtime) in rset.iterate_chunks():
-        data = rset.get_chunk(x,z)
-        rset._pois['TileEntities'] += data['TileEntities']
-        rset._pois['Entities']     += data['Entities']
+    numbuckets = config['processes'];
+    if numbuckets < 0:
+        numbuckets = multiprocessing.cpu_count()
+
+    if numbuckets == 1:
+        for (x,z,mtime) in rset.iterate_chunks():
+            try:
+                data = rset.get_chunk(x,z) 
+                rset._pois['TileEntities'] += data['TileEntities']
+                rset._pois['Entities']     += data['Entities']
+            except nbt.CorruptChunkError:
+                logging.warning("Ignoring POIs in corrupt chunk %d,%d", x,z)
+  
+    else:
+        buckets = [[] for i in range(numbuckets)];
+  
+        for (x,z,mtime) in rset.iterate_chunks():
+            i = x / 32 + z / 32
+            i = i % numbuckets 
+            buckets[i].append([x,z])
+  
+        for b in buckets:
+            logging.info("Buckets has %d entries", len(b));
+  
+        # Create a pool of processes and run all the functions
+        pool = Pool(processes=numbuckets)
+        results = pool.map(parseBucketChunks, ((buck, rset) for buck in buckets))
+  
+        logging.info("All the threads completed")
+  
+        # Fix up all the quests in the reset
+        for data in results:
+            rset._pois['TileEntities'] += data['TileEntities']
+            rset._pois['Entities']     += data['Entities']
 
     logging.info("Done.")
+
+class PlayerDict(dict):
+    use_uuid = False
+    _name = ''
+    def __getitem__(self, item):
+        if item == "EntityId":
+            if not super(PlayerDict, self).has_key("EntityId"):
+                if self.use_uuid:
+                    super(PlayerDict, self).__setitem__("EntityId", self.get_name_from_uuid())
+                else:
+                    super(PlayerDict, self).__setitem__("EntityId", self._name)
+        
+        return super(PlayerDict, self).__getitem__(item)
+
+    def get_name_from_uuid(self):
+        try:
+            profile = json.loads(urllib2.urlopen(UUID_LOOKUP_URL + self._name.replace('-','')).read())
+            if 'name' in profile:
+                return profile['name']
+        except (ValueError, urllib2.URLError):
+            logging.warning("Unable to get player name for UUID %s", playername)
 
 def handlePlayers(rset, render, worldpath):
     if not hasattr(rset, "_pois"):
@@ -57,10 +145,23 @@ def handlePlayers(rset, render, worldpath):
     # only handle this region set once
     if 'Players' in rset._pois:
         return
-    dimension = {None: 0,
-                 'DIM-1': -1,
-                 'DIM1': 1}[rset.get_type()]
-    playerdir = os.path.join(worldpath, "players")
+    dimension = None
+    try:
+        dimension = {None: 0,
+                     'DIM-1': -1,
+                     'DIM1': 1}[rset.get_type()]
+    except KeyError, e:
+        mystdim = re.match(r"^DIM_MYST(\d+)$", e.message)  # Dirty hack. Woo!
+        if mystdim:
+            dimension = int(mystdim.group(1))
+        else:
+            raise
+    playerdir = os.path.join(worldpath, "playerdata")
+    useUUIDs = True
+    if not os.path.isdir(playerdir):
+        playerdir = os.path.join(worldpath, "players")
+        useUUIDs = False
+
     if os.path.isdir(playerdir):
         playerfiles = os.listdir(playerdir)
         playerfiles = [x for x in playerfiles if x.endswith(".dat")]
@@ -73,30 +174,35 @@ def handlePlayers(rset, render, worldpath):
     rset._pois['Players'] = []
     for playerfile in playerfiles:
         try:
-            data = nbt.load(os.path.join(playerdir, playerfile))[1]
+            data = PlayerDict(nbt.load(os.path.join(playerdir, playerfile))[1])
+            data.use_uuid = useUUIDs
             if isSinglePlayer:
                 data = data['Data']['Player']
         except IOError:
             logging.warning("Skipping bad player dat file %r", playerfile)
             continue
         playername = playerfile.split(".")[0]
+
         if isSinglePlayer:
             playername = 'Player'
+
+        data._name = playername
+
         if data['Dimension'] == dimension:
             # Position at last logout
             data['id'] = "Player"
-            data['EntityId'] = playername
             data['x'] = int(data['Pos'][0])
             data['y'] = int(data['Pos'][1])
             data['z'] = int(data['Pos'][2])
             rset._pois['Players'].append(data)
         if "SpawnX" in data and dimension == 0:
             # Spawn position (bed or main spawn)
-            spawn = {"id": "PlayerSpawn",
-                     "EntityId": playername,
-                     "x": data['SpawnX'],
-                     "y": data['SpawnY'],
-                     "z": data['SpawnZ']}
+            spawn = PlayerDict()
+            spawn._name = playername
+            spawn["id"] = "PlayerSpawn"
+            spawn["x"] = data['SpawnX']
+            spawn["y"] = data['SpawnY']
+            spawn["z"] = data['SpawnZ']
             rset._pois['Players'].append(spawn)
 
 def handleManual(rset, manualpois):
@@ -120,7 +226,7 @@ def main():
     logger.configure()
 
     parser = OptionParser(usage=helptext)
-    parser.add_option("--config", dest="config", action="store", help="Specify the config file to use.")
+    parser.add_option("-c", "--config", dest="config", action="store", help="Specify the config file to use.")
     parser.add_option("--quiet", dest="quiet", action="count", help="Reduce logging output")
     parser.add_option("--skip-scan", dest="skipscan", action="store_true", help="Skip scanning for entities when using GenPOI")
 
@@ -185,7 +291,7 @@ def main():
                 markers[rname] = [to_append]
         
         if not options.skipscan:
-            handleEntities(rset, os.path.join(destdir, rname), render, rname)
+            handleEntities(rset, os.path.join(destdir, rname), render, rname, config)
 
         handlePlayers(rset, render, worldpath)
         handleManual(rset, render['manualpois'])

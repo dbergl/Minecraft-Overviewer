@@ -149,25 +149,17 @@ class Textures(object):
 
         # a list of subdirectories to search for a given file,
         # after the obvious '.'
-        search_dirs = ['anim', 'misc', 'environment', 'item']
+        search_dirs = ['anim', 'misc', 'environment', 'item', 'item/chests', 'entity', 'entity/chest']
         search_zip_paths = [filename,] + [d + '/' + filename for d in search_dirs]
         def search_dir(base):
             """Search the given base dir for filename, in search_dirs."""
             for path in [os.path.join(base, d, filename) for d in ['',] + search_dirs]:
+                if verbose: logging.info('filename: ' + filename + ' ; path: ' + path)
                 if os.path.isfile(path):
                     return path
-            return None
 
-        # we've sucessfully loaded something from here before, so let's quickly try
-        # this before searching again
-        if self.jar is not None:
-            for jarfilename in search_zip_paths:
-                try:
-                    self.jar.getinfo(jarfilename)
-                    if verbose: logging.info("Found (cached) %s in '%s'", jarfilename, self.jarpath)
-                    return self.jar.open(jarfilename)
-                except (KeyError, IOError), e:
-                    pass
+            return None
+        if verbose: logging.info('search_zip_paths: ' +  ', '.join(search_zip_paths))
 
         # A texture path was given on the command line. Search this location
         # for the file first.
@@ -186,6 +178,15 @@ class Textures(object):
                         try:
                             # pack.getinfo() will raise KeyError if the file is
                             # not found.
+                            pack.getinfo(packfilename)
+                            if verbose: logging.info("Found %s in '%s'", packfilename, self.find_file_local_path)
+                            return pack.open(packfilename)
+                        except (KeyError, IOError):
+                            pass
+                        
+                        try:
+                            # 2nd try with completed path.
+                            packfilename = 'assets/minecraft/textures/' + packfilename
                             pack.getinfo(packfilename)
                             if verbose: logging.info("Found %s in '%s'", packfilename, self.find_file_local_path)
                             return pack.open(packfilename)
@@ -215,9 +216,20 @@ class Textures(object):
         if verbose: logging.info("Did not find the file in overviewer executable directory")
         if verbose: logging.info("Looking for installed minecraft jar files...")
 
+        # we've sucessfully loaded something from here before, so let's quickly try
+        # this before searching again
+        if self.jar is not None:
+            for jarfilename in search_zip_paths:
+                try:
+                    self.jar.getinfo(jarfilename)
+                    if verbose: logging.info("Found (cached) %s in '%s'", jarfilename, self.jarpath)
+                    return self.jar.open(jarfilename)
+                except (KeyError, IOError), e:
+                    pass
+
         # Find an installed minecraft client jar and look in it for the texture
         # file we need.
-        versiondir = None
+        versiondir = ""
         if "APPDATA" in os.environ and sys.platform.startswith("win"):
             versiondir = os.path.join(os.environ['APPDATA'], ".minecraft", "versions")
         elif "HOME" in os.environ:
@@ -229,6 +241,7 @@ class Textures(object):
                     "Application Support", "minecraft", "versions")
 
         try:
+            if verbose: logging.info("Looking in the following directory: \"%s\"" % versiondir)
             versions = os.listdir(versiondir)
             if verbose: logging.info("Found these versions: {0}".format(versions))
         except OSError:
@@ -408,15 +421,16 @@ class Textures(object):
     def load_grass_color(self):
         """Helper function to load the grass color texture."""
         if not hasattr(self, "grasscolor"):
-            self.grasscolor = list(self.load_image("grasscolor.png").getdata())
+            self.grasscolor = list(self.load_image("grass.png").getdata())
         return self.grasscolor
 
     def load_foliage_color(self):
         """Helper function to load the foliage color texture."""
         if not hasattr(self, "foliagecolor"):
-            self.foliagecolor = list(self.load_image("foliagecolor.png").getdata())
+            self.foliagecolor = list(self.load_image("foliage.png").getdata())
         return self.foliagecolor
 
+	#I guess "watercolor" is wrong. But I can't correct as my texture pack don't define water color.
     def load_water_color(self):
         """Helper function to load the water color texture."""
         if not hasattr(self, "watercolor"):
@@ -624,23 +638,23 @@ class Textures(object):
             increment = int(round((top[1] / 16.)*12.)) # range increment in the block height in pixels (half texture size)
             crop_height = increment
             top = top[0]
-            if side1 != None:
+            if side1 is not None:
                 side1 = side1.copy()
                 ImageDraw.Draw(side1).rectangle((0, 0,16,crop_height),outline=(0,0,0,0),fill=(0,0,0,0))
-            if side2 != None:
+            if side2 is not None:
                 side2 = side2.copy()
                 ImageDraw.Draw(side2).rectangle((0, 0,16,crop_height),outline=(0,0,0,0),fill=(0,0,0,0))
-            if side3 != None:
+            if side3 is not None:
                 side3 = side3.copy()
                 ImageDraw.Draw(side3).rectangle((0, 0,16,crop_height),outline=(0,0,0,0),fill=(0,0,0,0))
-            if side4 != None:
+            if side4 is not None:
                 side4 = side4.copy()
                 ImageDraw.Draw(side4).rectangle((0, 0,16,crop_height),outline=(0,0,0,0),fill=(0,0,0,0))
 
         img = Image.new("RGBA", (24,24), self.bgcolor)
 
         # first back sides
-        if side1 != None :
+        if side1 is not None :
             side1 = self.transform_image_side(side1)
             side1 = side1.transpose(Image.FLIP_LEFT_RIGHT)
 
@@ -652,7 +666,7 @@ class Textures(object):
             alpha_over(img, side1, (0,0), side1)
 
 
-        if side2 != None :
+        if side2 is not None :
             side2 = self.transform_image_side(side2)
 
             # Darken this side.
@@ -662,12 +676,12 @@ class Textures(object):
 
             alpha_over(img, side2, (12,0), side2)
 
-        if bottom != None :
+        if bottom is not None :
             bottom = self.transform_image_top(bottom)
             alpha_over(img, bottom, (0,12), bottom)
 
         # front sides
-        if side3 != None :
+        if side3 is not None :
             side3 = self.transform_image_side(side3)
 
             # Darken this side
@@ -677,7 +691,7 @@ class Textures(object):
 
             alpha_over(img, side3, (0,6), side3)
 
-        if side4 != None :
+        if side4 is not None :
             side4 = self.transform_image_side(side4)
             side4 = side4.transpose(Image.FLIP_LEFT_RIGHT)
 
@@ -688,7 +702,7 @@ class Textures(object):
 
             alpha_over(img, side4, (12,6), side4)
 
-        if top != None :
+        if top is not None :
             top = self.transform_image_top(top)
             alpha_over(img, top, (0, increment), top)
 
@@ -1826,10 +1840,14 @@ def chests(self, blockid, data):
         # ancilData = 2,3,4,5 are used for this blockids
     
     if data & 24 == 0:
-        if blockid == 130: t = self.load_image("enderchest.png")
-        else: t = self.load_image("chest.png")
+        if blockid == 130: t = self.load_image("ender.png")
+        else:
+            try:
+                t = self.load_image("normal.png")
+            except (TextureException, IOError):
+                t = self.load_image("chest.png")
 
-        # the textures is no longer in terrain.png, get it from 
+        # the textures is no longer in terrain.png, get it from
         # item/chest.png and get by cropping all the needed stuff
         if t.size != (64,64): t = t.resize((64,64), Image.ANTIALIAS)
         # top
@@ -1882,7 +1900,7 @@ def chests(self, blockid, data):
         # large chest
         # the textures is no longer in terrain.png, get it from 
         # item/chest.png and get all the needed stuff
-        t = self.load_image("largechest.png")
+        t = self.load_image("normal_double.png")
         if t.size != (128,64): t = t.resize((128,64), Image.ANTIALIAS)
         # top
         top = t.crop((14,0,44,14))
@@ -3197,7 +3215,7 @@ def comparator(self, blockid, data):
     
     
 # trapdoor
-# TODO the trapdoor is looks like a sprite when opened, that's not good
+# the trapdoor is looks like a sprite when opened, that's not good
 @material(blockid=96, data=range(16), transparent=True, nospawn=True)
 def trapdoor(self, blockid, data):
 

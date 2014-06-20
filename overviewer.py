@@ -66,6 +66,7 @@ def main():
     parser.add_option("-p", "--processes", dest="procs", action="store", type="int",
             help="The number of local worker processes to spawn. Defaults to the number of CPU cores your computer has")
 
+    parser.add_option("--pid", dest="pid", action="store", help="Specify the pid file to use.")
     # Options that only apply to the config-less render usage
     parser.add_option("--rendermodes", dest="rendermodes", action="store",
             help="If you're not using a config file, specify which rendermodes to render with this option. This is a comma-separated list.")
@@ -83,6 +84,8 @@ def main():
             help="Tries to locate the texture files. Useful for debugging texture problems.")
     parser.add_option("-V", "--version", dest="version",
             help="Displays version information and then exits", action="store_true")
+    parser.add_option("--check-version", dest="checkversion",
+            help="Fetchs information about the latest version of Overviewer", action="store_true")
     parser.add_option("--update-web-assets", dest='update_web_assets', action="store_true",
             help="Update web assets. Will *not* render tiles or update overviewerConfig.js")
 
@@ -134,10 +137,46 @@ def main():
             print("built on %s" % overviewer_version.BUILD_DATE)
             if options.verbose > 0:
                 print("Build machine: %s %s" % (overviewer_version.BUILD_PLATFORM, overviewer_version.BUILD_OS))
+                print("Read version information from %r"% overviewer_version.__file__)
         except ImportError:
             print("(build info not found)")
+        if options.verbose > 0:
+            print("Python executable: %r" % sys.executable)
+            print(sys.version)
+        if not options.checkversion:
+            return 0
+    if options.checkversion:
+        print("Currently running Minecraft Overviewer %s" % util.findGitVersion()),
+        print("(%s)" % util.findGitHash()[:7])
+        try:
+            import urllib
+            import json
+            latest_ver = json.loads(urllib.urlopen("http://overviewer.org/download.json").read())['src']
+            print("Latest version of Minecraft Overviewer %s (%s)" % (latest_ver['version'], latest_ver['commit'][:7]))
+            print("See http://overviewer.org/downloads for more information")
+        except Exception:
+            print("Failed to fetch latest version info.")
+            if options.verbose > 0:
+                import traceback
+                traceback.print_exc()
+            else:
+                print("Re-run with --verbose for more details")
+            return 1
         return 0
 
+
+    if options.pid:
+        if os.path.exists(options.pid):
+            try:
+                with open(options.pid, 'r') as fpid:
+                    pid = int(fpid.read())
+                    if util.pid_exists(pid):
+                        print("Already running (pid exists) - exiting..")
+                        return 0
+            except (IOError, ValueError):
+                pass
+        with open(options.pid,"w") as f:
+            f.write(str(os.getpid()))
     # if --check-terrain was specified, but we have NO config file, then we cannot
     # operate on a custom texture path.  we do terrain checking with a custom texture
     # pack later on, after we've parsed the config file
@@ -301,19 +340,24 @@ dir but you forgot to put quotes around the directory, since it contains spaces.
         "--check-tiles, and --no-tile-checks. These options conflict.")
         parser.print_help()
         return 1
+
+    def set_renderchecks(checkname, num):
+        for name, render in config['renders'].iteritems():
+            if render.get('renderchecks', 0) == 3:
+                logging.warning(checkname + " ignoring render " + repr(name) + " since it's marked as \"don't render\".")
+            else:
+                render['renderchecks'] = num
+        
     if options.forcerender:
         logging.info("Forcerender mode activated. ALL tiles will be rendered")
-        for render in config['renders'].itervalues():
-            render['renderchecks'] = 2
+        set_renderchecks("forcerender", 2)
     elif options.checktiles:
         logging.info("Checking all tiles for updates manually.")
-        for render in config['renders'].itervalues():
-            render['renderchecks'] = 1
+        set_renderchecks("checktiles", 1)
     elif options.notilechecks:
         logging.info("Disabling all tile mtime checks. Only rendering tiles "+
         "that need updating since last render")
-        for render in config['renders'].itervalues():
-            render['renderchecks'] = 0
+        set_renderchecks("notilechecks", 0)
 
     if not config['renders']:
         logging.error("You must specify at least one render in your config file. See the docs if you're having trouble")
@@ -418,7 +462,7 @@ dir but you forgot to put quotes around the directory, since it contains spaces.
         texopts_key = tuple(texopts.items())
         if texopts_key not in texcache:
             tex = textures.Textures(**texopts)
-            logging.debug("Starting to generate textures")
+            logging.info("Generating textures...")
             tex.generate()
             logging.debug("Finished generating textures")
             texcache[texopts_key] = tex
@@ -462,12 +506,13 @@ dir but you forgot to put quotes around the directory, since it contains spaces.
 
         # only pass to the TileSet the options it really cares about
         render['name'] = render_name # perhaps a hack. This is stored here for the asset manager
-        tileSetOpts = util.dict_subset(render, ["name", "imgformat", "renderchecks", "rerenderprob", "bgcolor", "defaultzoom", "imgquality", "optimizeimg", "rendermode", "worldname_orig", "title", "dimension", "changelist", "showspawn", "overlay", "base", "poititle", "maxzoom", "showlocationmarker"])
+        tileSetOpts = util.dict_subset(render, ["name", "imgformat", "renderchecks", "rerenderprob", "bgcolor", "defaultzoom", "imgquality", "optimizeimg", "rendermode", "worldname_orig", "title", "dimension", "changelist", "showspawn", "overlay", "base", "poititle", "maxzoom", "showlocationmarker", "minzoom"])
         tileSetOpts.update({"spawn": w.find_true_spawn()}) # TODO find a better way to do this
         tset = tileset.TileSet(w, rset, assetMrg, tex, tileSetOpts, tileset_dir)
         tilesets.append(tset)
 
     # Do tileset preprocessing here, before we start dispatching jobs
+    logging.info("Preprocessing...")
     for ts in tilesets:
         ts.do_preprocessing()
 
@@ -493,7 +538,11 @@ dir but you forgot to put quotes around the directory, since it contains spaces.
         logging.debug("Final cache stats:")
         for c in caches:
             logging.debug("\t%s: %s hits, %s misses", c.__class__.__name__, c.hits, c.misses)
+    if options.pid:
+        os.remove(options.pid)
 
+    logging.info("Your render has been written to '%s', open index.html to view it" % destdir)    
+        
     return 0
 
 def list_worlds():
@@ -506,11 +555,11 @@ def list_worlds():
     print("Detected saves:")
 
     # get max length of world name
-    worldNameLen = max([len(str(x)) for x in worlds] + [len("World")])
+    worldNameLen = max([len(x) for x in worlds] + [len("World")])
 
-    formatString = "%-" + str(worldNameLen) + "s | %-8s | %-8s | %-16s | %s "
-    print(formatString % ("World", "Size", "Playtime", "Modified", "Path"))
-    print(formatString % ("-"*worldNameLen, "-"*8, "-"*8, '-'*16, '-'*4))
+    formatString = "%-" + str(worldNameLen) + "s | %-8s | %-16s | %s "
+    print(formatString % ("World", "Playtime", "Modified", "Path"))
+    print(formatString % ("-"*worldNameLen, "-"*8, '-'*16, '-'*4))
     for name, info in sorted(worlds.iteritems()):
         if isinstance(name, basestring) and name.startswith("World") and len(name) == 6:
             try:
@@ -524,9 +573,8 @@ def list_worlds():
                                   time.localtime(info['LastPlayed'] / 1000))
         playtime = info['Time'] / 20
         playstamp = '%d:%02d' % (playtime / 3600, playtime / 60 % 60)
-        size = "%.2fMB" % (info['SizeOnDisk'] / 1024. / 1024.)
         path = info['path']
-        print(formatString % (name, size, playstamp, timestamp, path))
+        print(formatString % (name, playstamp, timestamp, path))
 
 if __name__ == "__main__":
     multiprocessing.freeze_support()

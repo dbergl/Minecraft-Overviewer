@@ -49,7 +49,7 @@ overviewer.views.WorldView = Backbone.View.extend({
             if (!tset.get("isOverlay")) { return; };
 
         });
-    },
+    }
 });
 
 
@@ -133,7 +133,14 @@ overviewer.views.CoordboxView = Backbone.View.extend({
         var worldcoords = overviewer.util.fromLatLngToWorld(latLng.lat(), 
         latLng.lng(),
         overviewer.mapView.options.currentTileSet);
-        this.el.innerHTML = "Coords: X " + Math.round(worldcoords.x) + ", Z " + Math.round(worldcoords.z);
+
+        var regionfileX = Math.floor(Math.floor(worldcoords.x / 16.0) / 32.0);
+        var regionfileZ = Math.floor(Math.floor(worldcoords.z / 16.0) / 32.0);
+        var regionfilename = "r." + regionfileX + "." + regionfileZ + ".mca";
+
+        this.el.innerHTML = "<strong>X</strong> " + Math.round(worldcoords.x) +
+                            " <strong>Z</strong> " + Math.round(worldcoords.z) +
+                            " (" + regionfilename + ")";
     }
 });
 
@@ -544,7 +551,7 @@ overviewer.views.SignControlView = Backbone.View.extend({
         itemDiv.appendChild(textNode);
         itemDiv.style.whiteSpace = "nowrap";
 
-    },
+    }
 });
 
 /**

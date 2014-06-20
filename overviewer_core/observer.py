@@ -150,6 +150,9 @@ class ProgressBarObserver(progressbar.ProgressBar, Observer):
         logging.info("Rendering complete!")
 
     def update(self, current_value):
+        # maxval is an estimate, and progressbar barfs if currval > maxval
+        # so...
+        current_value = min(current_value, self.maxval)
         if super(ProgressBarObserver, self).update(current_value):
             self.last_update = self.get_current_value()
 
@@ -342,10 +345,11 @@ class ServerAnnounceObserver(Observer):
 
     def update(self, current_value):
         super(ServerAnnounceObserver, self).update(current_value)
-        if self._need_update(current_value):
+        if self._need_update():
             self._send_output('Rendered %d of %d tiles, %d%% complete' %
                 (self.get_current_value(), self.get_max_value(),
                     self.get_percentage()))
+            self.last_update = current_value
 
     def _need_update(self):
         return self.get_percentage() - \

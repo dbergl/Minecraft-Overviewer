@@ -295,6 +295,7 @@ the form ``key = value``. Two items take a different form:, ``worlds`` and
             Path to overviewer output directory. For simplicity, specify this 
             as ``outputdir=outputdir`` and place this line after setting
             ``outputdir = "<output directory path>"``.
+            
             **Required**
         
         * ``minrefresh=<seconds>``
@@ -316,14 +317,55 @@ the form ``key = value``. Two items take a different form:, ``worlds`` and
             * ``renderProgress="Rendered %d of %d tiles (%d%% ETA:%s)""``
               The four format strings will be replaced with the number of tiles
               completed, the total number of tiles, the percentage complete, and the ETA.
+	
 
             Format strings are explained here: http://docs.python.org/library/stdtypes.html#string-formatting
             All format strings must be present in your custom messages.
 
         ::
 
-                from observer import JSObserver
-                observer = JSObserver(outputdir, 10)
+            from observer import JSObserver
+            observer = JSObserver(outputdir, 10)
+                
+		
+    ``MultiplexingObserver(Observer[, Observer[, Observer ...]])``
+        This observer will send the progress information to all Observers passed
+        to it.
+        
+        * All Observers passed must implement the full Observer interface.
+        
+        ::
+        
+            ## An example that updates both a LoggingObserver and a JSObserver
+            # Import the Observers
+            from observer import MultiplexingObserver, LoggingObserver, JSObserver
+            
+            # Construct the LoggingObserver
+            loggingObserver = LoggingObserver()
+            
+            # Construct a basic JSObserver
+            jsObserver = JSObserver(outputdir) # This assumes you have set the outputdir previous to this line
+            
+            # Set the observer to a MultiplexingObserver 
+            observer = MultiplexingObserver(loggingObserver, jsObserver)
+            
+    ``ServerAnnounceObserver(target, pct_interval)``
+        This Observer will send its progress and status to a Minecraft server
+        via ``target`` with a Minecraft ``say`` command.
+        
+        * ``target=<file handle to write to>``
+            Either a FIFO file or stdin. Progress and status messages will be written to this handle.
+            
+            **Required**
+        
+        * ``pct_interval=<update rate, in percent>``
+            Progress and status messages will not be written more often than this value.
+            E.g., a value of ``1`` will make the ServerAnnounceObserver write to its target
+            once for every 1% of progress.
+            
+            **Required**
+            
+            
 
 
 .. _customwebassets:
@@ -503,18 +545,95 @@ values. The valid configuration keys are listed below.
     **Default:** ``95``
 
 ``optimizeimg``
+
+    .. warning::
+        Using image optimizers will increase render times significantly.
+
     This option specifies which additional tools overviewer should use to
     optimize the filesize of png tiles.
     The tools used must be placed somewhere, where overviewer can find them, for
     example the "PATH" environment variable or a directory like /usr/bin.
-    This should be an integer between 0 and 3.
-    * ``1 - Use pngcrush``
-    * ``2 - Use advdef``
-    * ``3 - Use pngcrush and advdef (Not recommended)``
-    Using this option may significantly increase render time, but will make
-    the resulting tiles smaller, with lossless image quality.
 
-    **Default:** ``0``
+    The option is a list of Optimizer objects, which are then executed in
+    the order in which they're specified::
+        
+        # Import the optimizers we need
+        from optimizeimages import pngnq, optipng
+
+        worlds["world"] = "/path/to/world"
+
+        renders["daytime"] = {
+            "world":"world",
+            "title":"day",
+            "rendermode":smooth_lighting,
+            "optimizeimg":[pngnq(sampling=1), optipng(olevel=3)],
+        }
+
+    .. note::
+        Don't forget to import the optimizers you use in your config file, as shown in the
+        example above.
+    
+    Here is a list of supported image optimization programs:
+
+    ``pngnq``
+        pngnq quantizes 32-bit RGBA images into 8-bit RGBA palette PNGs. This is
+        lossy, but reduces filesize significantly. Available settings:
+        
+        ``sampling``
+            An integer between ``1`` and ``10``, ``1`` samples all pixels, is slow and yields
+            the best quality. Higher values sample less of the image, which makes
+            the process faster, but less accurate.
+
+            **Default:** ``3``
+
+        ``dither``
+            Either the string ``"n"`` for no dithering, or ``"f"`` for Floyd
+            Steinberg dithering. Dithering helps eliminate colorbanding, sometimes
+            increasing visual quality.
+
+            .. warning::
+                With pngnq version 1.0 (which is what Ubuntu 12.04 ships), the
+                dithering option is broken. Only the default, no dithering,
+                can be specified on those systems.
+
+            **Default:** ``"n"``
+
+        .. warning::
+            Because of several PIL bugs, only the most zoomed in level has transparency
+            when using pngnq. The other zoom levels have all transparency replaced by
+            black. This is *not* pngnq's fault, as pngnq supports multiple levels of
+            transparency just fine, it's PIL's fault for not even reading indexed
+            PNGs correctly.
+
+    ``optipng``
+        optipng tunes the deflate algorithm and removes unneeded channels from the PNG,
+        producing a smaller, lossless output image. It was inspired by pngcrush.
+        Available settings:
+
+        ``olevel``
+            An integer between ``0`` (few optimizations) and ``7`` (many optimizations).
+            The default should be satisfactory for everyone, higher levels than the default
+            see almost no benefit.
+
+            **Default:** ``2``
+
+    ``pngcrush``
+        pngcrush, like optipng, is a lossless PNG recompressor. If you are able to do so, it
+        is recommended to use optipng instead, as it generally yields better results in less
+        time.
+        Available settings:
+
+        ``brute``
+            Either ``True`` or ``False``. Cycles through all compression methods, and is very slow.
+
+            .. note::
+                There is practically no reason to ever use this. optipng will beat pngcrush, and
+                throwing more CPU time at pngcrush most likely won't help. If you think you need
+                this option, then you are most likely wrong.
+
+            **Default:** ``False``
+
+    **Default:** ``[]``
 
 ``bgcolor``
     This is the background color to be displayed behind the map. Its value
@@ -524,13 +643,22 @@ values. The valid configuration keys are listed below.
     **Default:** ``#1a1a1a``
 
 ``defaultzoom``
-    This value specifies the default zoom level that the map will be opened
-    with. It has to be greater than 0.
+    This value specifies the default zoom level that the map will be
+    opened with. It has to be greater than 0, which corresponds to the
+    most zoomed-out level. If you use ``minzoom`` or ``maxzoom``, it
+    should be between those two.
 
     **Default:** ``1``
 
 ``maxzoom``
-    This specifies the maximum zoom allowed by the zoom control on the web page.
+    This specifies the maximum, closest in zoom allowed by the zoom
+    control on the web page. This is relative to 0, the farthest-out
+    image, so setting this to 8 will allow you to zoom in at most 8
+    times. This is *not* relative to ``minzoom``, so setting
+    ``minzoom`` will shave off even more levels. If you wish to
+    specify how many zoom levels to leave off, instead of how many
+    total to use, use a negative number here. For example, setting
+    this to -2 will disable the two most zoomed-in levels.
 
     .. note::
 
@@ -539,6 +667,19 @@ values. The valid configuration keys are listed below.
             usage is an issue.
 
     **Default:** Automatically set to most detailed zoom level
+
+``minzoom``
+    This specifies the minimum, farthest away zoom allowed by the zoom
+    control on the web page. For example, setting this to 2 will
+    disable the two most zoomed-out levels.
+
+    .. note::
+
+            This does not change the number of zoom levels rendered, but allows
+            you to have control over the number of zoom levels accessible via the
+            slider control.
+
+    **Default:** 0 (zero, which does not disable any zoom levels)
 
 ``showlocationmarker``
     Allows you to specify whether to show the location marker when accessing a URL
@@ -639,6 +780,14 @@ values. The valid configuration keys are listed below.
                 'title': "Forced Example",
                 'forcerender': True,
         }
+
+``renderchecks``
+    This is an integer, and functions as a more complex form of
+    ``forcerender``. Setting it to 1 enables :option:`--check-tiles`
+    mode, setting it to 2 enables :option:`--forcerender`, and 3 tells
+    Overviewer to keep this particular render in the output, but
+    otherwise don't update it. It defaults to 0, which is the usual
+    update checking mode.
 
 ``changelist``
     This is a string. It names a file where it will write out, one per line, the

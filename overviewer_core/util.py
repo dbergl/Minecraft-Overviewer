@@ -24,7 +24,7 @@ import platform
 from string import hexdigits
 from subprocess import Popen, PIPE
 from itertools import cycle, islice, product
-
+import errno
 def get_program_path():
     if hasattr(sys, "frozen") or imp.is_frozen("__main__"):
         return os.path.dirname(sys.executable)
@@ -48,7 +48,8 @@ def findGitHash():
             import overviewer_version
             return overviewer_version.HASH
         except Exception:
-            return "unknown"
+            pass
+    return "unknown"
 
 def findGitVersion():
     try:
@@ -391,3 +392,14 @@ try:
     OrderedDict = collections.OrderedDict
 except (ImportError, AttributeError):
     pass
+
+def pid_exists(pid): # http://stackoverflow.com/a/6940314/1318435
+    """Check whether pid exists in the current process table."""
+    if pid < 0:
+        return False
+    try:
+        os.kill(pid, 0)
+    except OSError, e:
+        return e.errno != errno.ESRCH
+    else:
+        return True

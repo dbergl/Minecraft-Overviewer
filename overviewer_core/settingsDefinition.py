@@ -46,6 +46,7 @@
 from settingsValidators import *
 import util
 from observer import ProgressBarObserver, LoggingObserver, JSObserver
+from optimizeimages import pngnq, optipng, pngcrush
 import platform
 import sys
 
@@ -72,7 +73,7 @@ renders = Setting(required=True, default=util.OrderedDict(),
             "imgquality": Setting(required=False, validator=validateImgQuality, default=95),
             "bgcolor": Setting(required=True, validator=validateBGColor, default="1a1a1a"),
             "defaultzoom": Setting(required=True, validator=validateDefaultZoom, default=1),
-            "optimizeimg": Setting(required=True, validator=validateOptImg, default=0),
+            "optimizeimg": Setting(required=True, validator=validateOptImg, default=[]),
             "nomarkers": Setting(required=False, validator=validateBool, default=None),
             "texturepath": Setting(required=False, validator=validateTexturePath, default=None),
             "renderchecks": Setting(required=False, validator=validateInt, default=None),
@@ -86,6 +87,7 @@ renders = Setting(required=True, default=util.OrderedDict(),
             "poititle": Setting(required=False, validator=validateStr, default="Markers"),
             "customwebassets": Setting(required=False, validator=validateWebAssetsPath, default=None),
             "maxzoom": Setting(required=False, validator=validateInt, default=None),
+            "minzoom": Setting(required=False, validator=validateInt, default=0),
             "manualpois": Setting(required=False, validator=validateManualPOIs, default=[]),
             "showlocationmarker": Setting(required=False, validator=validateBool, default=True),
             # Remove this eventually (once people update their configs)
