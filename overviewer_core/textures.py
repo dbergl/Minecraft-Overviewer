@@ -1557,7 +1557,7 @@ block(blockid=42, top_image="assets/minecraft/textures/blocks/iron_block.png")
 # double slabs and slabs
 # these wooden slabs are unobtainable without cheating, they are still
 # here because lots of pre-1.3 worlds use this blocks
-@material(blockid=[43, 44, 181, 182], data=range(16), transparent=(44,182,), solid=True)
+@material(blockid=[43, 44, 181, 182, 204, 205], data=range(16), transparent=(44,182,), solid=True)
 def slabs(self, blockid, data):
     if blockid == 44 or blockid == 182: 
         texture = data & 7
@@ -1602,9 +1602,12 @@ def slabs(self, blockid, data):
             top = self.load_image_texture("assets/minecraft/textures/blocks/red_sandstone_top.png")
             side = self.load_image_texture("assets/minecraft/textures/blocks/red_sandstone_normal.png")
         elif texture == 8: # 'full' red sandstone (smooth)
-            top = side = self.load_image_texture("assets/minecraft/textures/blocks/red_sandstone_top.png");
+            top = side = self.load_image_texture("assets/minecraft/textures/blocks/red_sandstone_top.png")
         else:
             return None
+
+    elif blockid == 205 or blockid == 204: # single purpur slab
+        top = side = self.load_image_texture("assets/minecraft/textures/blocks/purpur_block.png")
     
     if blockid == 43 or blockid == 181: # double slab
         return self.build_block(top, side)
@@ -1739,8 +1742,8 @@ def fire(self, blockid, data):
 # monster spawner
 block(blockid=52, top_image="assets/minecraft/textures/blocks/mob_spawner.png", transparent=True)
 
-# wooden, cobblestone, red brick, stone brick, netherbrick, sandstone, spruce, birch, jungle, quartz, and red sandstone stairs.
-@material(blockid=[53,67,108,109,114,128,134,135,136,156,163,164,180], data=range(128), transparent=True, solid=True, nospawn=True)
+# wooden, cobblestone, red brick, stone brick, netherbrick, sandstone, spruce, birch, jungle, quartz, red sandstone, and purpur stairs.
+@material(blockid=[53,67,108,109,114,128,134,135,136,156,163,164,180,203], data=range(128), transparent=True, solid=True, nospawn=True)
 def stairs(self, blockid, data):
     # preserve the upside-down bit
     upside_down = data & 0x4
@@ -1779,6 +1782,8 @@ def stairs(self, blockid, data):
         texture = self.load_image_texture("assets/minecraft/textures/blocks/planks_big_oak.png").copy()
     elif blockid == 180: # red sandstone stairs
         texture = self.load_image_texture("assets/minecraft/textures/blocks/red_sandstone_normal.png").copy()
+    elif blockid == 203: # purpur stairs
+        texture = self.load_image_texture("assets/minecraft/textures/blocks/purpur_block.png").copy()
 
     outside_l = texture.copy()
     outside_r = texture.copy()
@@ -2063,18 +2068,18 @@ def chests(self, blockid, data):
 def wire(self, blockid, data):
 
     if data & 0b1000000 == 64: # powered redstone wire
-        redstone_wire_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_line.png")
+        redstone_wire_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_line0.png")
         redstone_wire_t = self.tint_texture(redstone_wire_t,(255,0,0))
 
-        redstone_cross_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_cross.png")
+        redstone_cross_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_dot.png")
         redstone_cross_t = self.tint_texture(redstone_cross_t,(255,0,0))
 
         
     else: # unpowered redstone wire
-        redstone_wire_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_line.png")
+        redstone_wire_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_line0.png")
         redstone_wire_t = self.tint_texture(redstone_wire_t,(48,0,0))
         
-        redstone_cross_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_cross.png")
+        redstone_cross_t = self.load_image_texture("assets/minecraft/textures/blocks/redstone_dust_dot.png")
         redstone_cross_t = self.tint_texture(redstone_cross_t,(48,0,0))
 
     # generate an image per redstone direction
@@ -4000,7 +4005,8 @@ def cocoa_plant(self, blockid, data):
     return img
 
 # command block
-block(blockid=137, top_image="assets/minecraft/textures/blocks/command_block.png")
+# TODO: Add new command blocks and direction detection
+block(blockid=137, top_image="assets/minecraft/textures/blocks/command_block_front.png")
 
 # beacon block
 # at the moment of writing this, it seems the beacon block doens't use
@@ -4154,8 +4160,8 @@ def cobblestone_wall(self, blockid, data):
     
     return img
 
-# carrots and potatoes
-@material(blockid=[141,142], data=range(8), transparent=True, nospawn=True)
+# carrots, potatoes, and beetroots
+@material(blockid=[141,142,207], data=range(8), transparent=True, nospawn=True)
 def crops(self, blockid, data):
     if data != 7: # when growing they look the same
         # data = 7 -> fully grown, everything else is growing
@@ -4163,6 +4169,8 @@ def crops(self, blockid, data):
         raw_crop = self.load_image_texture("assets/minecraft/textures/blocks/potatoes_stage_%d.png" % (data % 3))
     elif blockid == 141: # carrots
         raw_crop = self.load_image_texture("assets/minecraft/textures/blocks/carrots_stage_3.png")
+    elif blockid == 207: # beetroots
+        raw_crop = self.load_image_texture("assets/minecraft/textures/blocks/beetroots_stage_3.png")
     else: # potatoes
         raw_crop = self.load_image_texture("assets/minecraft/textures/blocks/potatoes_stage_3.png")
     crop1 = self.transform_image_top(raw_crop)
@@ -4405,3 +4413,19 @@ def flower(self, blockid, data):
         alpha_over(img, bloom_tex.resize((14, 11), Image.ANTIALIAS), (5,5))
 
     return img
+
+# purpur block
+block(blockid=201, top_image="assets/minecraft/textures/blocks/purpur_block.png")
+
+
+# end stone brick block
+block(blockid=206, top_image="assets/minecraft/textures/blocks/end_bricks.png")
+
+# grass_path block
+@material(blockid=208, data=range(16), solid=True)
+def grass_path(self, blockid, data):
+    side_img = self.load_image_texture("assets/minecraft/textures/blocks/grass_path_side.png")
+    img =  self.build_block(self.load_image_texture("assets/minecraft/textures/blocks/grass_path_top.png"), side_img)
+
+    return img
+
